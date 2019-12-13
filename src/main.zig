@@ -1,10 +1,33 @@
 const std = @import("std");
 const testing = std.testing;
 
-export fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+const Expression = enum {
+    placeholder,
+};
 
-test "basic add functionality" {
-    testing.expect(add(3, 7) == 10);
+const Template = struct {
+    literals: [][]const u8,
+    expressions: []Expression,
+
+    pub fn init(comptime fmt: []const u8) Template {
+        comptime var build_literals = [_][]const u8{undefined};
+        comptime var build_expressions = [_]Expression{};
+
+        build_literals[0] = fmt;
+
+        return .{
+            .literals = &build_literals,
+            .expressions = &build_expressions,
+        };
+    }
+
+    fn runAlloc(allocator: *std.mem.Allocator, args: var) void {}
+};
+
+test "basic init" {
+    const tmpl = Template.init("hello");
+
+    testing.expectEqual(tmpl.literals.len, 1);
+    testing.expectEqual(tmpl.expressions.len, 0);
+    testing.expectEqual(tmpl.literals[0], "hello");
 }
