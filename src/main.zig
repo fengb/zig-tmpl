@@ -28,7 +28,7 @@ pub fn GenContext(comptime Out: type) type {
     };
 }
 
-const Expression = struct {
+const Directive = struct {
     name: []const u8,
 };
 
@@ -46,11 +46,11 @@ fn Template(comptime fmt: []const u8) type {
     const num_exprs = countExprs(fmt);
 
     comptime var build_literals: [num_exprs + 1][]const u8 = undefined;
-    comptime var build_expressions: [num_exprs]Expression = undefined;
+    comptime var build_directives: [num_exprs]Directive = undefined;
 
     const State = enum {
         Literal,
-        Expression,
+        Directive,
     };
 
     comptime var start_idx = 0;
@@ -61,18 +61,18 @@ fn Template(comptime fmt: []const u8) type {
     for (fmt) |c, i| {
         switch (c) {
             '{' => {
-                if (state == .Expression) {
+                if (state == .Directive) {
                     @compileError("Too many levels of '{' at " ++ i);
                 }
                 build_literals[build_idx] = fmt[start_idx..i];
                 start_idx = i;
-                state = .Expression;
+                state = .Directive;
             },
             '}' => {
                 if (state == .Literal) {
                     @compileError("Unmatched '}' at " ++ i);
                 }
-                build_expressions[build_idx] = .{
+                build_directives[build_idx] = .{
                     .name = fmt[start_idx + 1 .. i],
                 };
                 start_idx = i + 1;
@@ -82,22 +82,22 @@ fn Template(comptime fmt: []const u8) type {
             else => {},
         }
     }
-    if (state == .Expression) {
+    if (state == .Directive) {
         @compileError("Unmatched '{' at " ++ start_idx);
     }
     build_literals[build_idx] = fmt[start_idx..];
 
     return struct {
         const literals = build_literals;
-        const expressions = build_expressions;
+        const directives = build_directives;
 
         pub fn gen(ctx: *GenContext([]const u8), args: var) void {
-            inline for (expressions) |expr, i| {
+            inline for (directives) |expr, i| {
                 ctx.out = literals[i];
                 ctx.suspended = @frame();
                 suspend;
 
-                ctx.out = @field(args, expressions[i].name);
+                ctx.out = @field(args, directives[i].name);
                 ctx.suspended = @frame();
                 suspend;
             }
@@ -146,7 +146,7 @@ test "basic tests" {
         const tmpl = Template("hello");
 
         testing.expectEqual(tmpl.literals.len, 1);
-        testing.expectEqual(tmpl.expressions.len, 0);
+        testing.expectEqual(tmpl.directives.len, 0);
         testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
 
         const out = try tmpl.bufPrint(&out_buf, .{});
@@ -158,8 +158,8 @@ test "basic tests" {
         testing.expectEqual(tmpl.literals.len, 2);
         testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
         testing.expectEqualSlices(u8, tmpl.literals[1], "world");
-        testing.expectEqual(tmpl.expressions.len, 1);
-        testing.expectEqualSlices(u8, tmpl.expressions[0].name, "0");
+        testing.expectEqual(tmpl.directives.len, 1);
+        testing.expectEqualSlices(u8, tmpl.directives[0].name, "0");
 
         const out1 = try tmpl.bufPrint(&out_buf, .{" "});
         testing.expectEqualSlices(u8, out1, "hello world");
@@ -174,9 +174,9 @@ test "basic tests" {
         testing.expectEqualSlices(u8, tmpl.literals[0], "");
         testing.expectEqualSlices(u8, tmpl.literals[1], " ");
         testing.expectEqualSlices(u8, tmpl.literals[2], "");
-        testing.expectEqual(tmpl.expressions.len, 2);
-        testing.expectEqualSlices(u8, tmpl.expressions[0].name, "hello");
-        testing.expectEqualSlices(u8, tmpl.expressions[1].name, "world");
+        testing.expectEqual(tmpl.directives.len, 2);
+        testing.expectEqualSlices(u8, tmpl.directives[0].name, "hello");
+        testing.expectEqualSlices(u8, tmpl.directives[1].name, "world");
 
         const out = try tmpl.bufPrint(&out_buf, .{ .hello = "1", .world = "2" });
         testing.expectEqualSlices(u8, out, "1 2");
@@ -188,8 +188,8 @@ test "allocPrint" {
     testing.expectEqual(tmpl.literals.len, 2);
     testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
     testing.expectEqualSlices(u8, tmpl.literals[1], "world");
-    testing.expectEqual(tmpl.expressions.len, 1);
-    testing.expectEqualSlices(u8, tmpl.expressions[0].name, "0");
+    testing.expectEqual(tmpl.directives.len, 1);
+    testing.expectEqualSlices(u8, tmpl.directives[0].name, "0");
 
     const out1 = try tmpl.allocPrint(std.heap.page_allocator, .{" "});
     defer std.heap.page_allocator.free(out1);
