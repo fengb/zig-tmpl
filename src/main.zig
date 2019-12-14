@@ -41,6 +41,7 @@ fn Template(comptime fmt: []const u8) type {
                     @compileError("Too many levels of '{' at " ++ i);
                 }
                 build_literals[build_idx] = fmt[start_idx..i];
+                start_idx = i;
                 state = .Expression;
             },
             '}' => {
@@ -67,24 +68,45 @@ fn Template(comptime fmt: []const u8) type {
         const literals = build_literals;
         const expressions = build_expressions;
 
-        fn runAlloc(allocator: *std.mem.Allocator, args: var) void {}
+        fn copy(buf: []u8, val: []const u8) !usize {
+            if (val.len > buf.len) return error.BufferTooSmall;
+            std.mem.copy(u8, buf, val);
+            return val.len;
+        }
+
+        pub fn bufPrint(buf: []u8, args: var) error{BufferTooSmall}![]u8 {
+            var curr: usize = 0;
+            for (expressions) |expr, i| {
+                curr += try copy(buf[curr..], literals[i]);
+            }
+            curr += try copy(buf[curr..], literals[literals.len - 1]);
+            return buf[0..curr];
+        }
     };
 }
 
 test "basic init" {
+    var out_buf: [1000]u8 = undefined;
     {
         const tmpl = Template("hello");
 
         testing.expectEqual(tmpl.literals.len, 1);
         testing.expectEqual(tmpl.expressions.len, 0);
         testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
+
+        const out = try tmpl.bufPrint(&out_buf, .{});
+        testing.expectEqualSlices(u8, out, "hello");
     }
 
     {
         const tmpl = Template("hello{0}world");
         testing.expectEqual(tmpl.literals.len, 2);
-        testing.expectEqual(tmpl.expressions.len, 1);
         testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
         testing.expectEqualSlices(u8, tmpl.literals[1], "world");
+        testing.expectEqual(tmpl.expressions.len, 1);
+        testing.expectEqualSlices(u8, tmpl.expressions[0].name, "{0}");
+
+        const out = try tmpl.bufPrint(&out_buf, .{});
+        testing.expectEqualSlices(u8, out, "helloworld");
     }
 }
