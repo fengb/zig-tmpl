@@ -101,7 +101,18 @@ fn Template(comptime fmt: []const u8) type {
             suspend;
         }
 
-        pub fn bufPrint(buf: []u8, args: var) error{BufferTooSmall}![]u8 {
+        pub fn countSize(args: var) usize {
+            var ctx = GenContext([]const u8){};
+            _ = async gen(&ctx, args);
+
+            var result: usize = 0;
+            while (ctx.next()) |value| {
+                result += value.len;
+            }
+            return result;
+        }
+
+        pub fn bufPrint(buf: []u8, args: var) ![]u8 {
             var ctx = GenContext([]const u8){};
             _ = async gen(&ctx, args);
 
@@ -114,10 +125,17 @@ fn Template(comptime fmt: []const u8) type {
 
             return buf[0..curr];
         }
+
+        pub fn allocPrint(allocator: *std.mem.Allocator, args: var) ![]u8 {
+            const result = try allocator.alloc(u8, countSize(args));
+            return bufPrint(result, args) catch |err| switch (err) {
+                error.BufferTooSmall => unreachable,
+            };
+        }
     };
 }
 
-test "basic init" {
+test "basic tests" {
     var out_buf: [1000]u8 = undefined;
     {
         const tmpl = Template("hello");
@@ -158,4 +176,21 @@ test "basic init" {
         const out = try tmpl.bufPrint(&out_buf, .{ .hello = "1", .world = "2" });
         testing.expectEqualSlices(u8, out, "1 2");
     }
+}
+
+test "allocPrint" {
+    const tmpl = Template("hello{0}world");
+    testing.expectEqual(tmpl.literals.len, 2);
+    testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
+    testing.expectEqualSlices(u8, tmpl.literals[1], "world");
+    testing.expectEqual(tmpl.expressions.len, 1);
+    testing.expectEqualSlices(u8, tmpl.expressions[0].name, "0");
+
+    const out1 = try tmpl.allocPrint(std.heap.page_allocator, .{" "});
+    defer std.heap.page_allocator.free(out1);
+    testing.expectEqualSlices(u8, out1, "hello world");
+
+    const out2 = try tmpl.allocPrint(std.heap.page_allocator, .{"\n"});
+    defer std.heap.page_allocator.free(out2);
+    testing.expectEqualSlices(u8, out2, "hello\nworld");
 }
