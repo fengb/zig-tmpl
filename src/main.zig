@@ -4,8 +4,6 @@ const testing = std.testing;
 
 const Expression = struct {
     name: []const u8,
-    typeId: builtin.TypeId,
-    format: void = {},
 };
 
 fn countExprs(str: []const u8) usize {
@@ -49,8 +47,7 @@ fn Template(comptime fmt: []const u8) type {
                     @compileError("Unmatched '}' at " ++ i);
                 }
                 build_expressions[build_idx] = .{
-                    .name = fmt[start_idx .. i + 1],
-                    .typeId = .Int,
+                    .name = fmt[start_idx + 1 .. i],
                 };
                 start_idx = i + 1;
                 build_idx += 1;
@@ -76,8 +73,11 @@ fn Template(comptime fmt: []const u8) type {
 
         pub fn bufPrint(buf: []u8, args: var) error{BufferTooSmall}![]u8 {
             var curr: usize = 0;
-            for (expressions) |expr, i| {
+            inline for (expressions) |expr, i| {
                 curr += try copy(buf[curr..], literals[i]);
+
+                const value = @field(args, expressions[i].name);
+                curr += try copy(buf[curr..], value);
             }
             curr += try copy(buf[curr..], literals[literals.len - 1]);
             return buf[0..curr];
@@ -104,9 +104,26 @@ test "basic init" {
         testing.expectEqualSlices(u8, tmpl.literals[0], "hello");
         testing.expectEqualSlices(u8, tmpl.literals[1], "world");
         testing.expectEqual(tmpl.expressions.len, 1);
-        testing.expectEqualSlices(u8, tmpl.expressions[0].name, "{0}");
+        testing.expectEqualSlices(u8, tmpl.expressions[0].name, "0");
 
-        const out = try tmpl.bufPrint(&out_buf, .{});
-        testing.expectEqualSlices(u8, out, "helloworld");
+        const out1 = try tmpl.bufPrint(&out_buf, .{" "});
+        testing.expectEqualSlices(u8, out1, "hello world");
+
+        const out2 = try tmpl.bufPrint(&out_buf, .{"\n"});
+        testing.expectEqualSlices(u8, out2, "hello\nworld");
+    }
+
+    {
+        const tmpl = Template("{hello} {world}");
+        testing.expectEqual(tmpl.literals.len, 3);
+        testing.expectEqualSlices(u8, tmpl.literals[0], "");
+        testing.expectEqualSlices(u8, tmpl.literals[1], " ");
+        testing.expectEqualSlices(u8, tmpl.literals[2], "");
+        testing.expectEqual(tmpl.expressions.len, 2);
+        testing.expectEqualSlices(u8, tmpl.expressions[0].name, "hello");
+        testing.expectEqualSlices(u8, tmpl.expressions[1].name, "world");
+
+        const out = try tmpl.bufPrint(&out_buf, .{ .hello = "1", .world = "2" });
+        testing.expectEqualSlices(u8, out, "1 2");
     }
 }
