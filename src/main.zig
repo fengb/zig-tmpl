@@ -92,16 +92,20 @@ fn Template(comptime fmt: []const u8) type {
         const directives = build_directives;
 
         pub fn gen(ctx: *GenContext([]const u8), args: var) void {
-            inline for (directives) |expr, i| {
+            inline for (directives) |dir, i| {
                 ctx.out = literals[i];
                 ctx.suspended = @frame();
                 suspend;
 
-                ctx.out = @field(args, directives[i].name);
-                ctx.suspended = @frame();
-                suspend;
+                genDirective(ctx, dir, @field(args, dir.name));
             }
             ctx.out = literals[literals.len - 1];
+            ctx.suspended = @frame();
+            suspend;
+        }
+
+        pub fn genDirective(ctx: *GenContext([]const u8), directive: Directive, value: var) void {
+            ctx.out = value;
             ctx.suspended = @frame();
             suspend;
         }
