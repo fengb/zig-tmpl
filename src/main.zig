@@ -6,11 +6,20 @@ pub fn GenContext(comptime Out: type) type {
     return struct {
         suspended: ?anyframe = null,
         out: ?Out = undefined,
+        fresh: bool = true,
 
         pub fn next(self: *@This()) ?Out {
+            if (self.fresh) {
+                self.fresh = false;
+                return self.out;
+            }
+
             if (self.suspended) |suspended| {
+                // Copy elision... bug?
+                const copy = suspended;
+                self.suspended = null;
                 self.out = null;
-                resume suspended;
+                resume copy;
                 return self.out;
             }
 
@@ -83,10 +92,6 @@ fn Template(comptime fmt: []const u8) type {
         const expressions = build_expressions;
 
         pub fn gen(ctx: *GenContext([]const u8), args: var) void {
-            ctx.suspended = @frame();
-            suspend;
-
-            var curr: usize = 0;
             inline for (expressions) |expr, i| {
                 ctx.out = literals[i];
                 ctx.suspended = @frame();
