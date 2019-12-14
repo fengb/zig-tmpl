@@ -2,6 +2,23 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 
+pub fn GenContext(comptime Out: type) type {
+    return struct {
+        suspended: ?anyframe = null,
+        out: ?Out = undefined,
+
+        pub fn next(self: *@This()) ?Out {
+            if (self.suspended) |suspended| {
+                self.out = null;
+                resume suspended;
+                return self.out;
+            }
+
+            return null;
+        }
+    };
+}
+
 const Expression = struct {
     name: []const u8,
 };
@@ -65,21 +82,36 @@ fn Template(comptime fmt: []const u8) type {
         const literals = build_literals;
         const expressions = build_expressions;
 
-        fn copy(buf: []u8, val: []const u8) !usize {
-            if (val.len > buf.len) return error.BufferTooSmall;
-            std.mem.copy(u8, buf, val);
-            return val.len;
+        pub fn gen(ctx: *GenContext([]const u8), args: var) void {
+            ctx.suspended = @frame();
+            suspend;
+
+            var curr: usize = 0;
+            inline for (expressions) |expr, i| {
+                ctx.out = literals[i];
+                ctx.suspended = @frame();
+                suspend;
+
+                ctx.out = @field(args, expressions[i].name);
+                ctx.suspended = @frame();
+                suspend;
+            }
+            ctx.out = literals[literals.len - 1];
+            ctx.suspended = @frame();
+            suspend;
         }
 
         pub fn bufPrint(buf: []u8, args: var) error{BufferTooSmall}![]u8 {
-            var curr: usize = 0;
-            inline for (expressions) |expr, i| {
-                curr += try copy(buf[curr..], literals[i]);
+            var ctx = GenContext([]const u8){};
+            _ = async gen(&ctx, args);
 
-                const value = @field(args, expressions[i].name);
-                curr += try copy(buf[curr..], value);
+            var curr: usize = 0;
+            while (ctx.next()) |value| {
+                if (curr + value.len > buf.len) return error.BufferTooSmall;
+                std.mem.copy(u8, buf[curr..], value);
+                curr += value.len;
             }
-            curr += try copy(buf[curr..], literals[literals.len - 1]);
+
             return buf[0..curr];
         }
     };
